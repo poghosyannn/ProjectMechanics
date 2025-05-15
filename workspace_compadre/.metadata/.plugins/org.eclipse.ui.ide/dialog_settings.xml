@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<section name="Workbench">
+	<section name="ChooseWorkspaceDialogSettings">
+		<item key="DIALOG_Y_ORIGIN" value="306"/>
+		<item key="DIALOG_X_ORIGIN" value="458"/>
+	</section>
+	<section name="ExternalProjectImportWizard">
+		<item key="WizardProjectsImportPage.STORE_ARCHIVE_SELECTED" value="false"/>
+		<item key="WizardProjectsImportPage.STORE_COPY_PROJECT_ID" value="true"/>
+	</section>
+	<section name="WORKBENCH_SETTINGS">
+		<list key="ENABLED_TRANSFERS">
+		</list>
+	</section>
+	<section name="org.eclipse.ui.views.problem">
+	</section>
+	<section name="CleanDialogSettings">
+		<item key="DIALOG_WIDTH" value="500"/>
+		<item key="BUILD_NOW" value="true"/>
+		<item key="BUILD_ALL" value="true"/>
+		<item key="DIALOG_Y_ORIGIN" value="314"/>
+		<item key="DIALOG_HEIGHT" value="424"/>
+		<item key="DIALOG_X_ORIGIN" value="707"/>
+		<item key="TOGGLE_SELECTED" value="false"/>
+	</section>
+	<section name="NewWizardAction">
+	</section>
+</section>

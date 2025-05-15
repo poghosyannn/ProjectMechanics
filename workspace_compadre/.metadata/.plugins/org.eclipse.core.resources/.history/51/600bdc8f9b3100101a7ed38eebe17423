@@ -1,0 +1,202 @@
+package CirclePacking;
+
+import org.opensourcephysics.display.*;
+import org.opensourcephysics.frames.DisplayFrame;
+
+import java.awt.*;
+import java.io.IOException;
+import java.io.PrintWriter;
+import java.util.Random;
+
+public class PackingSimulator implements Drawable {
+
+    static class Particle {
+        double x, y;
+        double vx = 0, vy = 0;
+        double ax = 0, ay = 0;
+        double radius;
+        double mass;
+
+        Particle(double xPos, double yPos, double r) {
+            x = xPos;
+            y = yPos;
+            radius = r;
+//            mass = Math.PI * r * r;
+            mass = 1;
+
+        }
+    }
+
+    // Simulation constants
+    final int N = 8;
+    final double dt = 0.5;
+    final int T = 1000;
+    final double A = 10000;
+    final double B = 10000;
+    final double drag = 0.99;
+    final double BOX_WIDTH = 2000;
+    final double BOX_HEIGHT = 2000;
+    final double MIN_RADIUS = 1;
+    final double MAX_RADIUS = 8;
+
+    Particle[] particles = new Particle[N];
+    DisplayFrame frame = new DisplayFrame("x", "y", "Packing Circles");
+
+    public void setup() {
+        Random rng = new Random();
+
+        for (int i = 0; i < N; i++) {
+            double r = MIN_RADIUS + (MAX_RADIUS - MIN_RADIUS) * rng.nextDouble();
+            double x = r + (BOX_WIDTH - 2 * r) * rng.nextDouble();
+            double y = r + (BOX_HEIGHT - 2 * r) * rng.nextDouble();
+            particles[i] = new Particle(x, y, r);
+        }
+
+        frame.setPreferredMinMax(0, BOX_WIDTH, 0, BOX_HEIGHT);
+        frame.setDefaultCloseOperation(javax.swing.JFrame.EXIT_ON_CLOSE);
+        frame.addDrawable(this);
+        frame.setVisible(true);
+    }
+
+    public void simulate() {
+        for (int step = 0; step < T; step++) {
+            updateForces();
+            applyVerlet();
+            frame.render();
+            wait(10);
+        }
+
+        // === DO NOT MODIFY BELOW: LOGGING PART ===
+        double[] box = calculateBounds();
+        double potential = totalPotential();
+
+        PrintWriter writer = null;
+        try {
+            writer = new PrintWriter("src/CirclePacking/log_unitmass1.txt");
+            writer.printf("Parameters: A=%.0f, B=%.0f, drag=%.2f, dt=%.2f%n", A, B, drag, dt);
+            writer.printf("Bounding box: width=%.2f, height=%.2f, area=%.2f%n",
+                          box[4], box[5], box[6]);
+            writer.printf("Total potential energy: %.2f%n", potential);
+            writer.println("Final particle positions:");
+
+            for (int i = 0; i < N; i++) {
+                Particle p = particles[i];
+                writer.printf("Particle %d: x=%.2f, y=%.2f, r=%.2f, mass=%.2f%n",
+                        i, p.x, p.y, p.radius, p.mass);
+            }
+        } catch (IOException e) {
+            e.printStackTrace();
+        } finally {
+            if (writer != null) writer.close();
+        }
+    }
+
+    public void updateForces() {
+        for (Particle p : particles) {
+            p.ax = 0;
+            p.ay = 0;
+        }
+
+        for (int i = 0; i < N; i++) {
+            Particle a = particles[i];
+            for (int j = i + 1; j < N; j++) {
+                Particle b = particles[j];
+                double dx = b.x - a.x;
+                double dy = b.y - a.y;
+                double distSq = dx * dx + dy * dy;
+                double dist = Math.sqrt(distSq);
+                if (dist < 1e-2) dist = 1e-2;
+
+                double forceX = (A / distSq - B / (distSq * distSq)) * (dx / dist);
+                double forceY = (A / distSq - B / (distSq * distSq)) * (dy / dist);
+
+                a.ax += forceX / a.mass;
+                a.ay += forceY / a.mass;
+                b.ax -= forceX / b.mass;
+                b.ay -= forceY / b.mass;
+            }
+        }
+    }
+
+    public void applyVerlet() {
+        for (Particle p : particles) {
+            double prevAx = p.ax;
+            double prevAy = p.ay;
+
+            p.x += p.vx * dt + 0.5 * prevAx * dt * dt;
+            p.y += p.vy * dt + 0.5 * prevAy * dt * dt;
+
+            p.ax = 0;
+            p.ay = 0;
+        }
+
+        updateForces();
+
+        for (Particle p : particles) {
+            p.vx = (p.vx + 0.5 * p.ax * dt) * drag;
+            p.vy = (p.vy + 0.5 * p.ay * dt) * drag;
+        }
+    }
+
+    public void draw(DrawingPanel panel, Graphics g) {
+        g.setColor(Color.RED);
+        for (Particle p : particles) {
+            int px = panel.xToPix(p.x - p.radius);
+            int py = panel.yToPix(p.y + p.radius);
+            int d = (int) (2 * panel.xToPix(p.radius) - panel.xToPix(0));
+            g.drawOval(px, py - d, d, d);
+        }
+    }
+
+    private void wait(int ms) {
+        try {
+            Thread.sleep(ms);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+    }
+
+    public double[] calculateBounds() {
+        double minX = Double.POSITIVE_INFINITY, maxX = Double.NEGATIVE_INFINITY;
+        double minY = Double.POSITIVE_INFINITY, maxY = Double.NEGATIVE_INFINITY;
+
+        for (Particle p : particles) {
+            minX = Math.min(minX, p.x - p.radius);
+            maxX = Math.max(maxX, p.x + p.radius);
+            minY = Math.min(minY, p.y - p.radius);
+            maxY = Math.max(maxY, p.y + p.radius);
+        }
+
+        double width = maxX - minX;
+        double height = maxY - minY;
+        double area = width * height;
+
+        return new double[] { minX, maxX, minY, maxY, width, height, area };
+    }
+
+    public double totalPotential() {
+        double total = 0;
+
+        for (int i = 0; i < N; i++) {
+            Particle p1 = particles[i];
+            for (int j = i + 1; j < N; j++) {
+                Particle p2 = particles[j];
+                double dx = p1.x - p2.x;
+                double dy = p1.y - p2.y;
+                double rSq = dx * dx + dy * dy;
+                double r = Math.sqrt(rSq);
+                if (r < 1e-2) r = 1e-2;
+
+                total += -A / r + B / (r * r);
+            }
+        }
+
+        return total;
+    }
+
+    public static void main(String[] args) {
+    	PackingSimulator simulator = new PackingSimulator();
+        simulator.setup();
+        simulator.simulate();
+    }
+}

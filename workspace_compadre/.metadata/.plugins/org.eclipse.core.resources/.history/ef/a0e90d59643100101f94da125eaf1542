@@ -1,0 +1,152 @@
+package org.opensourcephysics.sip.ch08;
+
+import org.opensourcephysics.controls.*;
+import org.opensourcephysics.display.*;
+import org.opensourcephysics.frames.DisplayFrame;
+
+import java.awt.Color;
+import java.util.*;
+
+public class pack extends AbstractSimulation {
+
+  private double timeStep, springConstant, dragCoeff, boxWidth, boxHeight;
+  private int numParticles, stepsPerFrame;
+  private final List<Particle> particles = new ArrayList<>();
+  private double time = 0;
+  private int frameCount = 0, maxFrames = 2000;
+  private final DisplayFrame display =
+        new DisplayFrame("x", "y", "");
+
+ 
+  private class Particle extends Circle {
+    double r, vx, vy, ax, ay;
+    Particle(double x0, double y0, double radius) {
+      this.r = radius;
+      setXY(x0, y0);
+      color = Color.BLUE;
+    }
+  }
+
+  @Override
+  public void reset() {
+    control.setValue("timeStep",0.01);
+    control.setValue("stepsPerFrame",1);
+    control.setValue("numParticles",100);
+    control.setValue("springConstant",0.5e3);
+    control.setValue("dragCoeff",1.0);
+    control.setAdjustableValue("boxWidth",10.0);
+    control.setAdjustableValue("boxHeight",10.0);
+    enableStepsPerDisplay(true);
+    initialize();
+  }
+
+  @Override
+  public void initialize() {
+
+    timeStep = control.getDouble("timeStep");
+    stepsPerFrame = control.getInt("stepsPerFrame");
+    numParticles = control.getInt("numParticles");
+    springConstant = control.getDouble("springConstant");
+    dragCoeff = control.getDouble("dragCoeff");
+    boxWidth = control.getDouble("boxWidth");
+    boxHeight = control.getDouble("boxHeight");
+
+    particles.clear();
+    display.clearDrawables();
+    time = 0;
+    frameCount = 0;
+    seedRandomParticles();
+
+    
+    for (Particle p : particles) {
+      display.addDrawable(p);
+    }
+    display.setPreferredMinMax(0, boxWidth, 0, boxHeight);
+    display.setSquareAspect(true);
+  }
+
+  @Override
+  public void doStep() {
+    for (int s = 0; s < stepsPerFrame; s++) {
+      computeForces();
+      for (Particle p : particles) {
+        p.vx += 0.5 * p.ax * timeStep;
+        p.vy += 0.5 * p.ay * timeStep;
+        p.setXY(p.getX() + p.vx * timeStep,
+                p.getY() + p.vy * timeStep);
+      }
+      computeForces();
+      for (Particle p : particles) {
+        p.vx += 0.5 * p.ax * timeStep;
+        p.vy += 0.5 * p.ay * timeStep;
+      }
+      time += timeStep;
+    }
+    display.setMessage(String.format("t = %.3f", time));
+    if (++frameCount >= maxFrames) {
+      stopSimulation();
+    }
+  }
+
+  @Override
+  public void stop() {
+    
+  }
+
+  
+  private void computeForces() {
+    for (Particle p : particles) {
+      p.ax = 0;  p.ay = 0;
+    }
+    int n = particles.size();
+    for (int i = 0; i < n; i++) {
+      Particle A = particles.get(i);
+      for (int j = i+1; j < n; j++) {
+        Particle B = particles.get(j);
+        double dx = B.getX() - A.getX();
+        double dy = B.getY() - A.getY();
+        double dist = Math.hypot(dx, dy);
+        double overlap = (A.r + B.r) - dist;
+        if (overlap > 0) {
+          double f  = springConstant * overlap;
+          double fx = f * dx/dist;
+          double fy = f * dy/dist;
+          A.ax -= fx;  A.ay -= fy;
+          B.ax += fx;  B.ay += fy;
+        }
+      }
+    }
+    for (Particle p : particles) {
+      p.ax -= dragCoeff * p.vx;
+      p.ay -= dragCoeff * p.vy;
+    }
+  }
+
+  
+  private void seedRandomParticles() {
+    Random rng = new Random();
+    while (particles.size() < numParticles) {
+      double r = 0.2 + 0.3*rng.nextDouble();
+      double x, y;
+      boolean ok;
+      do {
+        x = r + (boxWidth  - 2*r)*rng.nextDouble();
+        y = r + (boxHeight - 2*r)*rng.nextDouble();
+        ok = true;
+        for (Particle p : particles) {
+          if (Math.hypot(x-p.getX(), y-p.getY()) < p.r + r) {
+            ok = false; break;
+          }
+        }
+      } while (!ok);
+      Particle p = new Particle(x, y, r);
+      p.vx = rng.nextDouble() - 0.5;
+      p.vy = rng.nextDouble() - 0.5;
+      particles.add(p);
+    }
+  }
+
+  public static void main(String[] args) {
+    SimulationControl.createApp(new pack());
+  }
+}

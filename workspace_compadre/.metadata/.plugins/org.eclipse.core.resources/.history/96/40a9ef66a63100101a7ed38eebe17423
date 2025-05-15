@@ -1,0 +1,301 @@
+package OptFloor;
+
+import org.opensourcephysics.display.*;
+import org.opensourcephysics.frames.DisplayFrame;
+
+import java.awt.*;
+import java.io.IOException;
+import java.io.PrintWriter;
+import java.util.ArrayList;
+import java.util.Random;
+
+public class OptimalFloorSimulator implements Drawable {
+    private static class Circle {
+        double posX, posY;
+        double velX = 0, velY = 0;
+        double accX = 0, accY = 0;
+        double radius;
+        double mass;
+
+        Circle(double x, double y, double r) {
+            this.posX = x;
+            this.posY = y;
+            this.radius = r;
+            this.mass = Math.PI * r * r;
+        }
+    }
+
+    // Constants and parameters
+    private final int NUM_CIRCLES = 7;
+    private final double TIME_STEP = 0.2;
+    private final int STEPS = 100;
+    private final double A = 50;
+    private final double B = 6000;
+    private final double AIR_RESISTANCE = 0.01;
+    private final double AREA_WIDTH = 500;
+    private final double AREA_HEIGHT = 500;
+    private final double CELL_SIZE = 50.0;
+    private final double MIN_RADIUS = 1;
+    private final double MAX_RADIUS = 5;
+
+    private final int GRID_COLS = (int) Math.ceil(AREA_WIDTH / CELL_SIZE);
+    private final int GRID_ROWS = (int) Math.ceil(AREA_HEIGHT / CELL_SIZE);
+
+    private ArrayList<Circle>[][] spatialGrid = new ArrayList[GRID_COLS][GRID_ROWS];
+    private Circle[] circles = new Circle[NUM_CIRCLES];
+
+    private final double CANVAS_WIDTH = 1200;
+    private final double CANVAS_HEIGHT = 1200;
+
+    private DisplayFrame display = new DisplayFrame("X", "Y", "Circle Floor Packing");
+
+    public void setup() {
+        Random rng = new Random();
+
+        for (int i = 0; i < NUM_CIRCLES; i++) {
+            double r = MIN_RADIUS + (MAX_RADIUS - MIN_RADIUS) * rng.nextDouble();
+            double x = r + (CANVAS_WIDTH - 2 * r) * rng.nextDouble();
+            double y = r + (CANVAS_HEIGHT - 2 * r) * rng.nextDouble();
+            circles[i] = new Circle(x, y, r);
+        }
+
+        display.setPreferredMinMax(0, CANVAS_WIDTH, 0, CANVAS_HEIGHT);
+        display.setDefaultCloseOperation(javax.swing.JFrame.EXIT_ON_CLOSE);
+        display.addDrawable(this);
+        display.setVisible(true);
+    }
+
+    public void simulate() {
+        for (int step = 0; step < STEPS; step++) {
+            updateForces();
+            performVerletIntegration();
+            display.render();
+            sleep(10);
+        }
+
+        // Logging final state
+        double[] bbox = calculateBoundingBox();
+        double potEnergy = calculatePotentialEnergy();
+
+        try {
+            PrintWriter pw = new PrintWriter("src/OptFloor/log1.txt");
+
+            pw.printf("Constants: ATTRACT=%.0f, REPEL=%.0f, air_resistance=%.2f, dt=%.2f%n",
+                    A, B, AIR_RESISTANCE, TIME_STEP);
+            pw.printf("Bounding Box: width=%.2f, height=%.2f, area=%.2f%n", bbox[4], bbox[5], bbox[6]);
+            pw.printf("Potential Energy Total: %.2f%n", potEnergy);
+            pw.printf("Fixed Area: width=%.2f, height=%.2f, area=%.2f%n", AREA_WIDTH, AREA_HEIGHT, AREA_WIDTH * AREA_HEIGHT);
+
+            pw.println("Circle Final Positions:");
+            for (int i = 0; i < NUM_CIRCLES; i++) {
+                Circle c = circles[i];
+                pw.printf("Circle %d: x=%.2f, y=%.2f, radius=%.2f, mass=%.2f%n",
+                        i, c.posX, c.posY, c.radius, c.mass);
+            }
+            pw.close();
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
+
+    private void updateForces() {
+        buildSpatialGrid();
+
+        for (int col = 0; col < GRID_COLS; col++) {
+            for (int row = 0; row < GRID_ROWS; row++) {
+                for (Circle c : spatialGrid[col][row]) {
+                    c.accX = 0;
+                    c.accY = 0;
+
+                    // Nearby cells including current
+                    for (int dCol = -1; dCol <= 1; dCol++) {
+                        for (int dRow = -1; dRow <= 1; dRow++) {
+                            int nCol = col + dCol;
+                            int nRow = row + dRow;
+                            if (nCol >= 0 && nCol < GRID_COLS && nRow >= 0 && nRow < GRID_ROWS) {
+                                for (Circle other : spatialGrid[nCol][nRow]) {
+                                    if (other != c) {
+                                        applyPairwiseForce(c, other);
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // Far cells via grouped mass centers
+                    for (int farCol = 0; farCol < GRID_COLS; farCol++) {
+                        for (int farRow = 0; farRow < GRID_ROWS; farRow++) {
+                            if (Math.abs(farCol - col) > 1 || Math.abs(farRow - row) > 1) {
+                                ArrayList<Circle> farGroup = spatialGrid[farCol][farRow];
+                                if (!farGroup.isEmpty()) {
+                                    applyGroupForce(c, farGroup);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private void applyPairwiseForce(Circle c1, Circle c2) {
+        double dx = c2.posX - c1.posX;
+        double dy = c2.posY - c1.posY;
+        double distSq = dx * dx + dy * dy;
+        double dist = Math.sqrt(distSq);
+        if (dist < 1e-2) return;
+
+        double forceMag = A / distSq - B / (distSq * distSq);
+        double fx = forceMag * dx / dist;
+        double fy = forceMag * dy / dist;
+
+        c1.accX += fx / c1.mass;
+        c1.accY += fy / c1.mass;
+    }
+
+    private void applyGroupForce(Circle c, ArrayList<Circle> group) {
+        double totalMass = 0;
+        double weightedX = 0;
+        double weightedY = 0;
+
+        for (Circle other : group) {
+            totalMass += other.mass;
+            weightedX += other.posX * other.mass;
+            weightedY += other.posY * other.mass;
+        }
+
+        double centerX = weightedX / totalMass;
+        double centerY = weightedY / totalMass;
+
+        double dx = centerX - c.posX;
+        double dy = centerY - c.posY;
+        double distSq = dx * dx + dy * dy;
+        double dist = Math.sqrt(distSq);
+        if (dist < 1e-2) return;
+
+        double forceMag = A / distSq - B / (distSq * distSq);
+        double fx = forceMag * dx / dist;
+        double fy = forceMag * dy / dist;
+
+        c.accX += fx / c.mass;
+        c.accY += fy / c.mass;
+    }
+
+    private void performVerletIntegration() {
+        for (Circle c : circles) {
+            double oldAccX = c.accX;
+            double oldAccY = c.accY;
+
+            // Update position
+            c.posX += c.velX * TIME_STEP + 0.5 * oldAccX * TIME_STEP * TIME_STEP;
+            c.posY += c.velY * TIME_STEP + 0.5 * oldAccY * TIME_STEP * TIME_STEP;
+
+            // Reset acceleration before recalculation
+            c.accX = 0;
+            c.accY = 0;
+
+            // Keep within bounds and apply bounce effect
+            if (c.posX - c.radius < 0) {
+                c.posX = c.radius;
+                c.velX = -c.velX * 0.5;
+            } else if (c.posX + c.radius > AREA_WIDTH) {
+                c.posX = AREA_WIDTH - c.radius;
+                c.velX = -c.velX * 0.5;
+            }
+
+            if (c.posY - c.radius < 0) {
+                c.posY = c.radius;
+                c.velY = -c.velY * 0.5;
+            } else if (c.posY + c.radius > AREA_HEIGHT) {
+                c.posY = AREA_HEIGHT - c.radius;
+                c.velY = -c.velY * 0.5;
+            }
+        }
+
+        updateForces();
+
+        for (Circle c : circles) {
+            c.velX = (c.velX + 0.5 * c.accX * TIME_STEP) * AIR_RESISTANCE;
+            c.velY = (c.velY + 0.5 * c.accY * TIME_STEP) * AIR_RESISTANCE;
+        }
+    }
+
+    public void draw(DrawingPanel panel, Graphics g) {
+        g.setColor(Color.RED);
+        for (Circle c : circles) {
+            int drawX = panel.xToPix(c.posX - c.radius);
+            int drawY = panel.yToPix(c.posY + c.radius);
+            int diameter = (int) (2 * panel.xToPix(c.radius) - panel.xToPix(0));
+            g.drawOval(drawX, drawY - diameter, diameter, diameter);
+        }
+    }
+
+    private void sleep(int milliseconds) {
+        try {
+            Thread.sleep(milliseconds);
+        } catch (InterruptedException ex) {
+            Thread.currentThread().interrupt();
+        }
+    }
+
+    private void buildSpatialGrid() {
+        for (int i = 0; i < GRID_COLS; i++) {
+            for (int j = 0; j < GRID_ROWS; j++) {
+                spatialGrid[i][j] = new ArrayList<Circle>();
+            }
+        }
+
+        for (Circle c : circles) {
+            int col = (int) (c.posX / CELL_SIZE);
+            int row = (int) (c.posY / CELL_SIZE);
+            if (col >= 0 && col < GRID_COLS && row >= 0 && row < GRID_ROWS) {
+                spatialGrid[col][row].add(c);
+            }
+        }
+    }
+
+    private double[] calculateBoundingBox() {
+        double minX = Double.MAX_VALUE, maxX = -Double.MAX_VALUE;
+        double minY = Double.MAX_VALUE, maxY = -Double.MAX_VALUE;
+
+        for (Circle c : circles) {
+            if (c.posX - c.radius < minX) minX = c.posX - c.radius;
+            if (c.posX + c.radius > maxX) maxX = c.posX + c.radius;
+            if (c.posY - c.radius < minY) minY = c.posY - c.radius;
+            if (c.posY + c.radius > maxY) maxY = c.posY + c.radius;
+        }
+
+        double width = maxX - minX;
+        double height = maxY - minY;
+        double area = width * height;
+
+        return new double[]{minX, maxX, minY, maxY, width, height, area};
+    }
+
+    private double calculatePotentialEnergy() {
+        double totalEnergy = 0;
+
+        for (int i = 0; i < NUM_CIRCLES; i++) {
+            Circle c1 = circles[i];
+            for (int j = i + 1; j < NUM_CIRCLES; j++) {
+                Circle c2 = circles[j];
+                double dx = c1.posX - c2.posX;
+                double dy = c1.posY - c2.posY;
+                double distSq = dx * dx + dy * dy;
+                double dist = Math.sqrt(distSq);
+                if (dist < 1e-2) dist = 1e-2;
+
+                double energy = -A / dist + B / (dist * dist);
+                totalEnergy += energy;
+            }
+        }
+
+        return totalEnergy;
+    }
+
+    public static void main(String[] args) {
+    	OptimalFloorSimulator sim = new OptimalFloorSimulator();
+        sim.setup();
+        sim.simulate();
+    }
+}

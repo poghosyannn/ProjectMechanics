@@ -1,0 +1,207 @@
+package Floor;
+
+import org.opensourcephysics.display.*;
+import org.opensourcephysics.frames.DisplayFrame;
+
+import java.awt.*;
+import java.io.PrintWriter;
+import java.io.IOException;
+import java.util.Random;
+
+public class FloorPlanner implements Drawable {
+
+    private static class Circle {
+        double x, y, vx = 0, vy = 0, ax = 0, ay = 0;
+        final double radius, mass;
+
+        Circle(double x, double y, double radius) {
+            this.x = x;
+            this.y = y;
+            this.radius = radius;
+            this.mass = Math.PI * radius * radius;
+        }
+    }
+
+    private final int N = 8, STEPS = 100;
+    private final double dt = 0.5, drag = 0.2;
+    private final double A = 1000, B = 2000;
+    private final double BOX_WIDTH = 800, BOX_HEIGHT = 800;
+    private final double AREA_WIDTH = 500, AREA_HEIGHT = 500;
+    private final double MIN_RADIUS = 1, MAX_RADIUS = 3;
+
+    private final Circle[] circles = new Circle[N];
+    private final DisplayFrame display = new DisplayFrame("x", "y", "Circle Packing");
+
+    private void setup() {
+        Random rand = new Random();
+        for (int i = 0; i < N; i++) {
+            double r = MIN_RADIUS + (MAX_RADIUS - MIN_RADIUS) * rand.nextDouble();
+            double x = r + (BOX_WIDTH - 2 * r) * rand.nextDouble();
+            double y = r + (BOX_HEIGHT - 2 * r) * rand.nextDouble();
+            circles[i] = new Circle(x, y, r);
+        }
+
+        display.setPreferredMinMax(0, BOX_WIDTH, 0, BOX_HEIGHT);
+        display.setDefaultCloseOperation(javax.swing.JFrame.EXIT_ON_CLOSE);
+        display.addDrawable(this);
+        display.setVisible(true);
+    }
+
+    private void simulate() {
+        for (int t = 0; t < STEPS; t++) {
+            calculateForces();
+            integrate();
+            display.render();
+            delay(10);
+        }
+        logResults();
+    }
+
+    private void calculateForces() {
+        for (Circle c : circles) {
+            c.ax = 0;
+            c.ay = 0;
+        }
+
+        for (int i = 0; i < N; i++) {
+            Circle a = circles[i];
+            for (int j = i + 1; j < N; j++) {
+                Circle b = circles[j];
+                double dx = b.x - a.x;
+                double dy = b.y - a.y;
+                double r2 = dx * dx + dy * dy;
+                double dist = Math.sqrt(r2);
+                if (dist < 1e-2) dist = 1e-2;
+
+                double f = (A / r2 - B / (r2 * r2)) / dist;
+                double fx = f * dx;
+                double fy = f * dy;
+
+                a.ax += fx / a.mass;
+                a.ay += fy / a.mass;
+                b.ax -= fx / b.mass;
+                b.ay -= fy / b.mass;
+            }
+        }
+    }
+
+    private void integrate() {
+        for (Circle c : circles) {
+            double axOld = c.ax, ayOld = c.ay;
+
+            c.x += c.vx * dt + 0.5 * axOld * dt * dt;
+            c.y += c.vy * dt + 0.5 * ayOld * dt * dt;
+
+            c.ax = 0;
+            c.ay = 0;
+
+            // Boundary handling
+            if (c.x - c.radius < 0) {
+                c.x = c.radius;
+                c.vx *= -0.5;
+            } else if (c.x + c.radius > AREA_WIDTH) {
+                c.x = AREA_WIDTH - c.radius;
+                c.vx *= -0.5;
+            }
+
+            if (c.y - c.radius < 0) {
+                c.y = c.radius;
+                c.vy *= -0.5;
+            } else if (c.y + c.radius > AREA_HEIGHT) {
+                c.y = AREA_HEIGHT - c.radius;
+                c.vy *= -0.5;
+            }
+        }
+
+        calculateForces(); // Recalculate after position update
+
+        for (Circle c : circles) {
+            c.vx = (c.vx + 0.5 * c.ax * dt) * drag;
+            c.vy = (c.vy + 0.5 * c.ay * dt) * drag;
+        }
+    }
+
+    public void draw(DrawingPanel panel, Graphics g) {
+        g.setColor(Color.RED);
+        for (Circle c : circles) {
+            int px = panel.xToPix(c.x - c.radius);
+            int py = panel.yToPix(c.y + c.radius);
+            int diameter = (int) (2 * panel.xToPix(c.radius) - panel.xToPix(0));
+            g.drawOval(px, py - diameter, diameter, diameter);
+        }
+    }
+
+    private void delay(int ms) {
+        try {
+            Thread.sleep(ms);
+        } catch (InterruptedException ex) {
+            Thread.currentThread().interrupt();
+        }
+    }
+
+    private double[] boundingBox() {
+        double minX = Double.MAX_VALUE, minY = Double.MAX_VALUE;
+        double maxX = -Double.MAX_VALUE, maxY = -Double.MAX_VALUE;
+
+        for (Circle c : circles) {
+            minX = Math.min(minX, c.x - c.radius);
+            maxX = Math.max(maxX, c.x + c.radius);
+            minY = Math.min(minY, c.y - c.radius);
+            maxY = Math.max(maxY, c.y + c.radius);
+        }
+
+        double width = maxX - minX;
+        double height = maxY - minY;
+        return new double[] { minX, maxX, minY, maxY, width, height, width * height };
+    }
+
+    private double potentialEnergy() {
+        double energy = 0.0;
+        for (int i = 0; i < N; i++) {
+            Circle a = circles[i];
+            for (int j = i + 1; j < N; j++) {
+                Circle b = circles[j];
+                double dx = a.x - b.x;
+                double dy = a.y - b.y;
+                double r = Math.sqrt(dx * dx + dy * dy);
+                if (r < 1e-2) r = 1e-2;
+                energy += -A / r + B / (r * r);
+            }
+        }
+        return energy;
+    }
+
+    private void logResults() {
+    	PrintWriter writer = null;
+    	try {
+            writer = new PrintWriter("src/Floor/log2.txt");
+    	    writer.printf("Parameters: A=%.0f, B=%.0f, drag=%.2f, dt=%.2f%n", A, B, drag, dt);
+
+    	    double[] bounds = boundingBox();
+    	    writer.printf("Bounding box: width=%.2f, height=%.2f, area=%.2f%n",
+    	                  bounds[4], bounds[5], bounds[6]);
+    	    writer.printf("Total potential energy: %.2f%n", potentialEnergy());
+    	    writer.printf("Fixed area: width=%.2f, height=%.2f, total area=%.2f%n",
+    	                  AREA_WIDTH, AREA_HEIGHT, AREA_WIDTH * AREA_HEIGHT);
+    	    writer.println("Final particle positions:");
+
+    	    for (int i = 0; i < N; i++) {
+    	        Circle c = circles[i];
+    	        writer.printf("Particle %d: x=%.2f, y=%.2f, r=%.2f, mass=%.2f%n",
+    	                      i, c.x, c.y, c.radius, c.mass);
+    	    }
+    	} catch (IOException e) {
+    	    e.printStackTrace();
+    	} finally {
+    	    if (writer != null) {
+    	        writer.close();
+    	    }
+    	}
+    }
+
+    public static void main(String[] args) {
+        FloorPlanner planner = new FloorPlanner();
+        planner.setup();
+        planner.simulate();
+    }
+}

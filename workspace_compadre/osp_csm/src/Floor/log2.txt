@@ -1,0 +1,13 @@
+Parameters: A=1000, B=4000, drag=0.20, dt=0.50
+Bounding box: width=468.12, height=488.17, area=228521.34
+Total potential energy: -106.48
+Fixed area: width=500.00, height=500.00, total area=250000.00
+Final particle positions:
+Particle 0: x=498.15, y=221.67, r=1.81, mass=10.27
+Particle 1: x=234.46, y=149.58, r=1.54, mass=7.43
+Particle 2: x=52.42, y=180.08, r=1.69, mass=8.99
+Particle 3: x=498.15, y=127.88, r=1.80, mass=10.19
+Particle 4: x=498.40, y=498.21, r=1.58, mass=7.84
+Particle 5: x=498.19, y=382.37, r=1.79, mass=10.02
+Particle 6: x=33.71, y=13.47, r=1.85, mass=10.72
+Particle 7: x=179.94, y=34.18, r=1.35, mass=5.70

@@ -1,0 +1,13 @@
+Constants: ATTRACT=40, REPEL=40000, air_resistance=1.00, dt=0.10
+Bounding Box: width=469.20, height=476.99, area=223804.63
+Potential Energy Total: 14.31
+Fixed Area: width=500.00, height=500.00, area=250000.00
+Circle Final Positions:
+Circle 0: x=163.56, y=262.80, radius=1.66, mass=8.62
+Circle 1: x=84.70, y=498.77, radius=1.05, mass=3.47
+Circle 2: x=420.72, y=497.61, radius=2.06, mass=13.39
+Circle 3: x=498.42, y=248.34, radius=1.39, mass=6.06
+Circle 4: x=497.75, y=447.77, radius=1.66, mass=8.71
+Circle 5: x=33.44, y=25.67, radius=2.84, mass=25.30
+Circle 6: x=239.44, y=73.01, radius=1.21, mass=4.62
+Circle 7: x=333.45, y=339.66, radius=2.68, mass=22.60

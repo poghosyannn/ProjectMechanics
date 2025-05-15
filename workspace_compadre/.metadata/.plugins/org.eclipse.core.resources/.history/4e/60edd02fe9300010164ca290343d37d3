@@ -1,0 +1,143 @@
+package packing;
+
+import org.opensourcephysics.display.*;
+import org.opensourcephysics.frames.DisplayFrame;
+
+import java.awt.*;
+import java.io.FileWriter;
+import java.io.IOException;
+import java.util.Random;
+
+public class CirclePackingSimulation implements Drawable {
+
+    static class Circle {
+        double x, y, vx, vy, ax, ay, radius, mass;
+
+        Circle(double x, double y, double radius) {
+            this.x = x;
+            this.y = y;
+            this.vx = 0;
+            this.vy = 0;
+            this.ax = 0;
+            this.ay = 0;
+            this.radius = radius;
+            this.mass = Math.PI * radius * radius; // assuming density = 1
+        }
+    }
+
+    // Configuration
+    private final int total = 200;
+    private final double timestep = 0.1;
+    private final int steps = 500;
+    private final double attractive = 2800;
+    private final double repulsive = 45000;
+    private final double damping = 0.96;
+    private final double width = 500, height = 500;
+    private final double minR = 6, maxR = 14;
+
+    private final Circle[] circles = new Circle[total];
+    private final DisplayFrame display = new DisplayFrame("X", "Y", "Circle Packing Simulation");
+
+    private void initParticles() {
+        Random rng = new Random();
+
+        for (int i = 0; i < total; i++) {
+            double r = minR + (maxR - minR) * rng.nextDouble();
+            double x = r + (width - 2 * r) * rng.nextDouble();
+            double y = r + (height - 2 * r) * rng.nextDouble();
+            circles[i] = new Circle(x, y, r);
+        }
+
+        display.setPreferredMinMax(0, width, 0, height);
+        display.setDefaultCloseOperation(javax.swing.JFrame.EXIT_ON_CLOSE);
+        display.addDrawable(this);
+        display.setVisible(true);
+    }
+
+    private void simulate() {
+        for (int t = 0; t < steps; t++) {
+            calculateInteractions();
+            integrateMotion();
+            display.render();
+            sleep(10);
+        }
+
+        logResults();
+    }
+
+    private void calculateInteractions() {
+        for (Circle c : circles) {
+            c.ax = 0;
+            c.ay = 0;
+        }
+
+        for (int i = 0; i < total; i++) {
+            Circle ci = circles[i];
+            for (int j = i + 1; j < total; j++) {
+                Circle cj = circles[j];
+                double dx = cj.x - ci.x;
+                double dy = cj.y - ci.y;
+                double distSq = dx * dx + dy * dy;
+                double dist = Math.max(Math.sqrt(distSq), 1e-2);
+
+                double force = (attractive / distSq - repulsive / (distSq * distSq));
+                double fx = force * (dx / dist);
+                double fy = force * (dy / dist);
+
+                ci.ax += fx / ci.mass;
+                ci.ay += fy / ci.mass;
+                cj.ax -= fx / cj.mass;
+                cj.ay -= fy / cj.mass;
+            }
+        }
+    }
+
+    private void integrateMotion() {
+        for (Circle c : circles) {
+            double axPrev = c.ax;
+            double ayPrev = c.ay;
+
+            c.x += c.vx * timestep + 0.5 * axPrev * timestep * timestep;
+            c.y += c.vy * timestep + 0.5 * ayPrev * timestep * timestep;
+        }
+
+        calculateInteractions();
+
+        for (Circle c : circles) {
+            c.vx = (c.vx + 0.5 * c.ax * timestep) * damping;
+            c.vy = (c.vy + 0.5 * c.ay * timestep) * damping;
+        }
+    }
+
+    private void logResults() {
+        try (FileWriter out = new FileWriter("src/packing/output_log.txt")) {
+            double[] box = getBoundingBox();
+            double energy = calculatePotentialEnergy();
+
+            out.write(String.format("Params: attractive=%.0f, repulsive=%.0f, damping=%.2f, timestep=%.2f%n",
+                    attractive, repulsive, damping, timestep));
+            out.write(String.format("Bounding Box: %.2f x %.2f = %.2f%n", box[0], box[1], box[2]));
+            out.write(String.format("Total Energy: %.2f%n", energy));
+
+            for (int i = 0; i < total; i++) {
+                Circle c = circles[i];
+                out.write(String.format("Circle %d: x=%.2f, y=%.2f, r=%.2f, mass=%.2f%n", i, c.x, c.y, c.radius, c.mass));
+            }
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
+
+    private double[] getBoundingBox() {
+        double minX = Double.MAX_VALUE, maxX = -Double.MAX_VALUE;
+        double minY = Double.MAX_VALUE, maxY = -Double.MAX_VALUE;
+
+        for (Circle c : circles) {
+            minX = Math.min(minX, c.x - c.radius);
+            maxX = Math.max(maxX, c.x + c.radius);
+            minY = Math.min(minY, c.y - c.radius);
+            maxY = Math.max(maxY, c.y + c.radius);
+        }
+
+        double w = maxX - minX;
+        double h = maxY - minY;

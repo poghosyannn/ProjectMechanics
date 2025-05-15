@@ -1,0 +1,278 @@
+package Optpacking;
+
+import org.opensourcephysics.display.*;
+import org.opensourcephysics.frames.DisplayFrame;
+
+import java.awt.*;
+import java.io.IOException;
+import java.io.PrintWriter;
+import java.util.ArrayList;
+import java.util.Random;
+
+public class OptimizedPackingCircles implements Drawable {
+    static class Particle {
+        double x, y;
+        double vx = 0, vy = 0;
+        double ax = 0, ay = 0;
+        double radius;
+        double mass = 1.0;
+
+        Particle(double x, double y, double radius) {
+            this.x = x;
+            this.y = y;
+            this.vx = 0;
+            this.vy = 0;
+            this.ax = 0;
+            this.ay = 0;
+            this.radius = radius;
+            this.mass = Math.PI * radius * radius;
+        }
+    }
+
+    final int N = 8;
+    final double dt = 0.4;
+    final int T = 500;
+    final double A = 400;
+    final double B = 70000;
+    final double drag = 0.99;
+    final double BOX_WIDTH = 1200;
+    final double BOX_HEIGHT = 1200;
+    final double MIN_RADIUS = 1;
+    final double MAX_RADIUS = 4;
+    final double CELL_SIZE = 60.0;
+    int cols = (int) Math.ceil(BOX_WIDTH / CELL_SIZE);
+    int rows = (int) Math.ceil(BOX_HEIGHT / CELL_SIZE);
+    ArrayList<Particle>[][] grid = new ArrayList[cols][rows];
+
+    Particle[] particles = new Particle[N];
+    DisplayFrame frame = new DisplayFrame("x", "y", "Packing Circles");
+
+    public void initialize() {
+        Random rand = new Random();
+
+        for (int i = 0; i < N; i++) {
+            double radius = MIN_RADIUS + (MAX_RADIUS - MIN_RADIUS) * rand.nextDouble();
+            double x = radius + (BOX_WIDTH - 2 * radius) * rand.nextDouble();
+            double y = radius + (BOX_HEIGHT - 2 * radius) * rand.nextDouble();
+            particles[i] = new Particle(x, y, radius);
+        }
+
+        frame.setPreferredMinMax(0, BOX_WIDTH, 0, BOX_HEIGHT);
+        frame.setDefaultCloseOperation(javax.swing.JFrame.EXIT_ON_CLOSE);
+        frame.addDrawable(this);
+        frame.setVisible(true);
+    }
+
+    public void runSimulation() {
+        for (int t = 0; t < T; t++) {
+            computeForces();
+            verletIntegration();
+            frame.render();
+            pause(10);
+        }
+
+        double[] boundingBox = computeBoundingBox();
+        double potentialEnergy = computePotentialEnergy();
+
+        PrintWriter writer = null;
+        try {
+            writer = new PrintWriter("src/Optpacking/opt_log2.txt");
+            writer.printf("Parameters: A=%.0f, B=%.0f, drag=%.2f, dt=%.2f%n", A, B, drag, dt);
+            writer.printf("Bounding box: width=%.2f, height=%.2f, area=%.2f%n",
+                          boundingBox[4], boundingBox[5], boundingBox[6]);
+            writer.printf("Total potential energy: %.2f%n", potentialEnergy);
+            writer.println("Final particle positions:");
+
+            for (int i = 0; i < N; i++) {
+                Particle p = particles[i];
+                writer.printf("Particle %d: x=%.2f, y=%.2f, r=%.2f, mass=%.2f%n",
+                              i, p.x, p.y, p.radius, p.mass);
+            }
+        } catch (IOException e) {
+            e.printStackTrace();
+        } finally {
+            if (writer != null) writer.close();
+        }
+    }
+
+    public void computeForces() {
+        buildGrid();
+
+        for (int i = 0; i < cols; i++) {
+            for (int j = 0; j < rows; j++) {
+                for (Particle p : grid[i][j]) {
+                    p.ax = 0;
+                    p.ay = 0;
+
+                    for (int dx = -1; dx <= 1; dx++) {
+                        for (int dy = -1; dy <= 1; dy++) {
+                            int ni = i + dx;
+                            int nj = j + dy;
+
+                            if (ni >= 0 && ni < cols && nj >= 0 && nj < rows) {
+                                for (Particle q : grid[ni][nj]) {
+                                    if (p != q) {
+                                        applyDirectForce(p, q);
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    for (int m = 0; m < cols; m++) {
+                        for (int n = 0; n < rows; n++) {
+                            if (Math.abs(m - i) > 1 || Math.abs(n - j) > 1) {
+                                ArrayList<Particle> distantCell = grid[m][n];
+                                if (!distantCell.isEmpty()) {
+                                    applySuperParticleForce(p, distantCell);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    void applyDirectForce(Particle pi, Particle pj) {
+        double dx = pj.x - pi.x;
+        double dy = pj.y - pi.y;
+        double r2 = dx * dx + dy * dy;
+        double r = Math.sqrt(r2);
+        if (r < 1e-2) return;
+
+        double fx = (A / r2 - B / (r2 * r2)) * (dx / r);
+        double fy = (A / r2 - B / (r2 * r2)) * (dy / r);
+
+        pi.ax += fx / pi.mass;
+        pi.ay += fy / pi.mass;
+    }
+
+    void applySuperParticleForce(Particle p, ArrayList<Particle> group) {
+        double totalMass = 0;
+        double sumX = 0, sumY = 0;
+
+        for (Particle q : group) {
+            totalMass += q.mass;
+            sumX += q.x * q.mass;
+            sumY += q.y * q.mass;
+        }
+
+        double cx = sumX / totalMass;
+        double cy = sumY / totalMass;
+
+        double dx = cx - p.x;
+        double dy = cy - p.y;
+        double r2 = dx * dx + dy * dy;
+        double r = Math.sqrt(r2);
+        if (r < 1e-2) return;
+
+        double fx = (A / r2 - B / (r2 * r2)) * (dx / r);
+        double fy = (A / r2 - B / (r2 * r2)) * (dy / r);
+
+        p.ax += fx / p.mass;
+        p.ay += fy / p.mass;
+    }
+
+    public void verletIntegration() {
+        for (Particle p : particles) {
+            double ax_old = p.ax;
+            double ay_old = p.ay;
+
+            p.x += p.vx * dt + 0.5 * ax_old * dt * dt;
+            p.y += p.vy * dt + 0.5 * ay_old * dt * dt;
+
+            p.ax = 0;
+            p.ay = 0;
+        }
+
+        computeForces();
+
+        for (Particle p : particles) {
+            p.vx = (p.vx + 0.5 * (p.ax) * dt) * drag;
+            p.vy = (p.vy + 0.5 * (p.ay) * dt) * drag;
+        }
+    }
+
+    public void draw(DrawingPanel panel, Graphics g) {
+        g.setColor(Color.RED);
+        for (Particle p : particles) {
+            int px = panel.xToPix(p.x - p.radius);
+            int py = panel.yToPix(p.y + p.radius);
+            int d = (int) (2 * panel.xToPix(p.radius) - panel.xToPix(0));
+            g.drawOval(px, py - d, d, d);
+        }
+    }
+
+    private void pause(int ms) {
+        try {
+            Thread.sleep(ms);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+    }
+
+    public double[] computeBoundingBox() {
+        double minX = Double.MAX_VALUE, maxX = -Double.MAX_VALUE;
+        double minY = Double.MAX_VALUE, maxY = -Double.MAX_VALUE;
+
+        for (Particle p : particles) {
+            minX = Math.min(minX, p.x - p.radius);
+            maxX = Math.max(maxX, p.x + p.radius);
+            minY = Math.min(minY, p.y - p.radius);
+            maxY = Math.max(maxY, p.y + p.radius);
+        }
+
+        double width = maxX - minX;
+        double height = maxY - minY;
+        double area = width * height;
+
+        return new double[] { minX, maxX, minY, maxY, width, height, area };
+    }
+
+    public double computePotentialEnergy() {
+        double totalEnergy = 0;
+
+        for (int i = 0; i < N; i++) {
+            Particle pi = particles[i];
+            for (int j = i + 1; j < N; j++) {
+                Particle pj = particles[j];
+                double dx = pi.x - pj.x;
+                double dy = pi.y - pj.y;
+                double r2 = dx * dx + dy * dy;
+                double r = Math.sqrt(r2);
+                if (r < 1e-2) r = 1e-2;
+
+                double energy = -A / r + B / (r * r);
+                totalEnergy += energy;
+            }
+        }
+
+        return totalEnergy;
+    }
+
+    void buildGrid() {
+        for (int i = 0; i < cols; i++) {
+            for (int j = 0; j < rows; j++) {
+                grid[i][j] = new ArrayList<OptimizedPackingCircles.Particle>();
+            }
+        }
+
+        for (Particle p : particles) {
+            int cx = (int) (p.x / CELL_SIZE);
+            int cy = (int) (p.y / CELL_SIZE);
+
+            if (cx >= 0 && cx < cols && cy >= 0 && cy < rows) {
+                grid[cx][cy].add(p);
+            }
+        }
+    }
+
+
+
+    public static void main(String[] args) {
+        OptimizedPackingCircles sim = new OptimizedPackingCircles();
+        sim.initialize();
+        sim.runSimulation();
+    }
+}
